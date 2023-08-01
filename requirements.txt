@@ -1,0 +1,7 @@
+pip==22.0.2
+psycopg2-binary
+sqlalchemy
+click
+pytest
+testing.postgresql==1.2.1
+pika
