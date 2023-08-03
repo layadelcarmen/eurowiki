@@ -12,6 +12,10 @@ from datetime import datetime
 from pika.adapters.asyncio_connection import AsyncioConnection
 from pika.exchange_type import ExchangeType
 
+from load_data import insert_into_table, create_table
+
+from sqlalchemy import create_engine
+
 LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -30s %(funcName) '
               '-35s %(lineno) -5d: %(message)s')
 LOGGER = logging.getLogger(__name__)
@@ -20,8 +24,19 @@ LOGGER = logging.getLogger(__name__)
 counts = defaultdict(int)
 count_servers = defaultdict(int)
 SERVER_NAME = 'de.wikipedia.org'
+SERVER_ALIAS = 'de_wiki'
 
 channel = None
+
+DB_USER =  os.environ.get('POSTGRES_USER')
+DB_PASSWORD =  os.environ.get('POSTGRES_PASSWORD')
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME", "eurowiki")
+
+db_url = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+engine = create_engine(db_url, echo=False, isolation_level='AUTOCOMMIT')
+
 
 class ExampleConsumer(object):
     """This is an example consumer that will handle unexpected interactions
@@ -461,14 +476,14 @@ def print_aggregates():
     global counts, count_servers
 
     row_aggregate = {}
-    row_aggregate['current_time'] =  datetime.now().isoformat(sep=" ", timespec="seconds") #curret_time.strftime("%Y-%m-%d %H:%M:%S")
+    current = datetime.now()
+    row_aggregate['added_date'] =  current
     row_aggregate['total_edit'] = counts['total_edit']
-    row_aggregate[SERVER_NAME] = count_servers.get(SERVER_NAME,0)
-    print(json.dumps(row_aggregate))
-    print()
+    row_aggregate[SERVER_ALIAS] = count_servers.get(SERVER_NAME,0)
+    insert_into_table(engine,row_aggregate)
+    print(json.dumps(row_aggregate,default=str))
     counts = defaultdict(int)
     count_servers = defaultdict(int)
-
 
 
 def update_forever(the_loop):
@@ -480,6 +495,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     amqp_url = 'amqp://guest:guest@localhost:5672/%2F'
     consumer = ReconnectingExampleConsumer(amqp_url)
+    create_table(engine)
     consumer.run()
 
 
