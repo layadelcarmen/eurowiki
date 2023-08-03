@@ -55,7 +55,7 @@ class WikiUpdConsumer(object):
     EXCHANGE = 'message'
     EXCHANGE_TYPE = ExchangeType.topic
     QUEUE = 'wiki_updates'
-    ROUTING_KEY = 'example.text'
+    ROUTING_KEY = 'wiki_updates'
 
     def __init__(self, amqp_url):
         """Create a new instance of the consumer class, passing in the AMQP
