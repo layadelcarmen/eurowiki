@@ -25,6 +25,7 @@ counts = defaultdict(int)
 count_servers = defaultdict(int)
 SERVER_NAME = 'de.wikipedia.org'
 SERVER_ALIAS = 'de_wiki'
+SAVE_AGGR_DELAY = 60 # Interval to Save to DB
 
 channel = None
 
@@ -38,7 +39,7 @@ db_url = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB
 engine = create_engine(db_url, echo=False, isolation_level='AUTOCOMMIT')
 
 
-class ExampleConsumer(object):
+class WikiUpdConsumer(object):
     """This is an example consumer that will handle unexpected interactions
     with RabbitMQ such as channel and connection closures.
 
@@ -84,7 +85,7 @@ class ExampleConsumer(object):
         :rtype: pika.adapters.asyncio_connection.AsyncioConnection
 
         """
-        LOGGER.info('Connecting to %s', self._url)
+        LOGGER.debug('Connecting to %s', self._url)
         return AsyncioConnection(
             parameters=pika.URLParameters(self._url),
             on_open_callback=self.on_connection_open,
@@ -94,9 +95,9 @@ class ExampleConsumer(object):
     def close_connection(self):
         self._consuming = False
         if self._connection.is_closing or self._connection.is_closed:
-            LOGGER.info('Connection is closing or already closed')
+            LOGGER.debug('Connection is closing or already closed')
         else:
-            LOGGER.info('Closing connection')
+            LOGGER.debug('Closing connection')
             self._connection.close()
 
     def on_connection_open(self, _unused_connection):
@@ -108,7 +109,7 @@ class ExampleConsumer(object):
            The connection
 
         """
-        LOGGER.info('Connection opened')
+        LOGGER.debug('Connection opened')
         self.open_channel()
 
     def on_connection_open_error(self, _unused_connection, err):
@@ -155,7 +156,7 @@ class ExampleConsumer(object):
         on_channel_open callback will be invoked by pika.
 
         """
-        LOGGER.info('Creating a new channel')
+        LOGGER.debug('Creating a new channel')
         self._connection.channel(on_open_callback=self.on_channel_open)
 
     def on_channel_open(self, channel):
@@ -167,7 +168,7 @@ class ExampleConsumer(object):
         :param pika.channel.Channel channel: The channel object
 
         """
-        LOGGER.info('Channel opened')
+        LOGGER.debug('Channel opened')
         self._channel = channel
         self.add_on_channel_close_callback()
         self.setup_exchange(self.EXCHANGE)
@@ -177,7 +178,7 @@ class ExampleConsumer(object):
         RabbitMQ unexpectedly closes the channel.
 
         """
-        LOGGER.info('Adding channel close callback')
+        LOGGER.debug('Adding channel close callback')
         self._channel.add_on_close_callback(self.on_channel_closed)
 
     def on_channel_closed(self, channel, reason):
@@ -202,7 +203,7 @@ class ExampleConsumer(object):
         :param str|unicode exchange_name: The name of the exchange to declare
 
         """
-        LOGGER.info('Declaring exchange: %s', exchange_name)
+        LOGGER.debug('Declaring exchange: %s', exchange_name)
         # Note: using functools.partial is not required, it is demonstrating
         # how arbitrary data can be passed to the callback when it is called
         cb = functools.partial(
@@ -220,7 +221,7 @@ class ExampleConsumer(object):
         :param str|unicode userdata: Extra user data (exchange name)
 
         """
-        LOGGER.info('Exchange declared: %s', userdata)
+        LOGGER.debug('Exchange declared: %s', userdata)
         self.setup_queue(self.QUEUE)
 
     def setup_queue(self, queue_name):
@@ -231,7 +232,7 @@ class ExampleConsumer(object):
         :param str|unicode queue_name: The name of the queue to declare.
 
         """
-        LOGGER.info('Declaring queue %s', queue_name)
+        LOGGER.debug('Declaring queue %s', queue_name)
         cb = functools.partial(self.on_queue_declareok, userdata=queue_name)
         self._channel.queue_declare(queue=queue_name, callback=cb)
 
@@ -247,7 +248,7 @@ class ExampleConsumer(object):
 
         """
         queue_name = userdata
-        LOGGER.info('Binding %s to %s with %s', self.EXCHANGE, queue_name,
+        LOGGER.debug('Binding %s to %s with %s', self.EXCHANGE, queue_name,
                     self.ROUTING_KEY)
         cb = functools.partial(self.on_bindok, userdata=queue_name)
         self._channel.queue_bind(
@@ -264,7 +265,7 @@ class ExampleConsumer(object):
         :param str|unicode userdata: Extra user data (queue name)
 
         """
-        LOGGER.info('Queue bound: %s', userdata)
+        LOGGER.debug('Queue bound: %s', userdata)
         self.set_qos()
 
     def set_qos(self):
@@ -285,7 +286,7 @@ class ExampleConsumer(object):
         :param pika.frame.Method _unused_frame: The Basic.QosOk response frame
 
         """
-        LOGGER.info('QOS set to: %d', self._prefetch_count)
+        LOGGER.debug('QOS set to: %d', self._prefetch_count)
         self.start_consuming()
 
     def start_consuming(self):
@@ -298,7 +299,7 @@ class ExampleConsumer(object):
         will invoke when a message is fully received.
 
         """
-        LOGGER.info('Issuing consumer related RPC commands')
+        LOGGER.debug('Issuing consumer related RPC commands')
         self.add_on_cancel_callback()
         self._consumer_tag = self._channel.basic_consume(
             self.QUEUE, self.on_message)
@@ -311,7 +312,7 @@ class ExampleConsumer(object):
         on_consumer_cancelled will be invoked by pika.
 
         """
-        LOGGER.info('Adding consumer cancellation callback')
+        LOGGER.debug('Adding consumer cancellation callback')
         self._channel.add_on_cancel_callback(self.on_consumer_cancelled)
 
     def on_consumer_cancelled(self, method_frame):
@@ -321,7 +322,7 @@ class ExampleConsumer(object):
         :param pika.frame.Method method_frame: The Basic.Cancel frame
 
         """
-        LOGGER.info('Consumer was cancelled remotely, shutting down: %r',
+        LOGGER.debug('Consumer was cancelled remotely, shutting down: %r',
                     method_frame)
         if self._channel:
             self._channel.close()
@@ -362,7 +363,7 @@ class ExampleConsumer(object):
 
         """
         if self._channel:
-            LOGGER.info('Sending a Basic.Cancel RPC command to RabbitMQ')
+            LOGGER.debug('Sending a Basic.Cancel RPC command to RabbitMQ')
             cb = functools.partial(
                 self.on_cancelok, userdata=self._consumer_tag)
             self._channel.basic_cancel(self._consumer_tag, cb)
@@ -378,7 +379,7 @@ class ExampleConsumer(object):
 
         """
         self._consuming = False
-        LOGGER.info(
+        LOGGER.debug(
             'RabbitMQ acknowledged the cancellation of the consumer: %s',
             userdata)
         self.close_channel()
@@ -388,7 +389,7 @@ class ExampleConsumer(object):
         Channel.Close RPC command.
 
         """
-        LOGGER.info('Closing the channel')
+        LOGGER.debug('Closing the channel')
         self._channel.close()
 
     def run(self):
@@ -414,25 +415,25 @@ class ExampleConsumer(object):
         """
         if not self._closing:
             self._closing = True
-            LOGGER.info('Stopping')
+            LOGGER.debug('Stopping')
             if self._consuming:
                 self.stop_consuming()
                 self._connection.ioloop.run_forever()
             else:
                 self._connection.ioloop.stop()
-            LOGGER.info('Stopped')
+            LOGGER.debug('Stopped')
 
 
-class ReconnectingExampleConsumer(object):
+class ReconnectingWikiUpdConsumer(object):
     """This is an example consumer that will reconnect if the nested
-    ExampleConsumer indicates that a reconnect is necessary.
+    WikiUpdConsumer indicates that a reconnect is necessary.
 
     """
 
     def __init__(self, amqp_url):
         self._reconnect_delay = 0
         self._amqp_url = amqp_url
-        self._consumer = ExampleConsumer(self._amqp_url)
+        self._consumer = WikiUpdConsumer(self._amqp_url)
 
     def run(self):
         while True:
@@ -447,9 +448,9 @@ class ReconnectingExampleConsumer(object):
         if self._consumer.should_reconnect:
             self._consumer.stop()
             reconnect_delay = self._get_reconnect_delay()
-            LOGGER.info('Reconnecting after %d seconds', reconnect_delay)
+            LOGGER.debug('Reconnecting after %d seconds', reconnect_delay)
             time.sleep(reconnect_delay)
-            self._consumer = ExampleConsumer(self._amqp_url)
+            self._consumer = WikiUpdConsumer(self._amqp_url)
 
     def _get_reconnect_delay(self):
         if self._consumer.was_consuming:
@@ -460,7 +461,7 @@ class ReconnectingExampleConsumer(object):
             self._reconnect_delay = 30
         return self._reconnect_delay
 
-###%%%%%%%%%%%%%%%%%%%%%%%%#
+#FUNCTIONS to process the messages and the aggregates#
 
 
 def process_row(row):
@@ -488,13 +489,13 @@ def print_aggregates():
 
 def update_forever(the_loop):
     print_aggregates()
-    the_loop.call_later(5, update_forever, the_loop)
+    the_loop.call_later(SAVE_AGGR_DELAY, update_forever, the_loop)
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     amqp_url = 'amqp://guest:guest@localhost:5672/%2F'
-    consumer = ReconnectingExampleConsumer(amqp_url)
+    consumer = ReconnectingWikiUpdConsumer(amqp_url)
     consumer.run()
 
 

@@ -12,7 +12,6 @@ def insert_into_table(engine, upd_line):
         "VALUES(:added_date, :total_edit, :de_wiki) "
         )   
     query_text = text(x)
-    print('QUERYYY: ', query_text)
     with engine.connect() as conn:
         rs = conn.execute(query_text, {
             "added_date": upd_line['added_date'],
