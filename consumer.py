@@ -12,7 +12,7 @@ from datetime import datetime
 from pika.adapters.asyncio_connection import AsyncioConnection
 from pika.exchange_type import ExchangeType
 
-from load_data import insert_into_table, create_table
+from load_data import insert_into_table
 
 from sqlalchemy import create_engine
 
@@ -495,7 +495,6 @@ def main():
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     amqp_url = 'amqp://guest:guest@localhost:5672/%2F'
     consumer = ReconnectingExampleConsumer(amqp_url)
-    create_table(engine)
     consumer.run()
 
 
